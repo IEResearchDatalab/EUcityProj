@@ -50,3 +50,6 @@ vignettes/*.pdf
 
 # R Environment Variables
 .Renviron
+
+# Ignore temporary files
+temp_results/*
