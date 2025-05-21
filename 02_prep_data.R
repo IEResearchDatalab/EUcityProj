@@ -23,6 +23,9 @@ cityage <- read.csv("data/city_results.csv")
 cities <- unique(subset(cityage, select = c("URAU_CODE", "LABEL", "CNTR_CODE", 
   "cntr_name", "region", "lon", "lat", "pop")))
 
+# Only Austria
+cities <- subset(cities, CNTR_CODE == "AT")
+
 # Countries
 countries <- summarise(cities, 
     ncities = length(URAU_CODE), lat = mean(lat), region = unique(region), 

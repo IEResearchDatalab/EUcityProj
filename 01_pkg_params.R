@@ -74,7 +74,7 @@ if (!dir.exists("data")){
 
 # Number of simulations for the Monte-Carlo eCI and number of cores
 # Too many cores can result in insufficient memory allocated to each
-nsim <- 500
+nsim <- 5  # 500
 ncores <- pmax(detectCores() - 1, 1) |> pmin(15)
 
 # Size of groups of cities to parallelise
