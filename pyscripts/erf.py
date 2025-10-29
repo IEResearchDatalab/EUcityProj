@@ -1,3 +1,5 @@
+import os
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -120,7 +122,7 @@ def erf(tmean: np.ndarray, perc: np.ndarray, coeffs: np.ndarray) -> np.ndarray:
     return rr
 
 
-def main():
+def main(output_dir: str = "output"):
     # Read input data
     df_coeffs = pd.read_csv("data/coefs.csv")
     df_tmean = pd.read_csv("data/tmean_distribution.csv")
@@ -152,7 +154,10 @@ def main():
     plt.title(f"Exposure-Response Function (ERF) for {urau_code}")
     plt.legend(title="Age Group")
     plt.grid()
-    plt.savefig("erf_plot.png")
+
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+    plt.savefig(os.path.join(output_dir, "erf_plot.png"))
 
 
 if __name__ == "__main__":
