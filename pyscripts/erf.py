@@ -1,4 +1,5 @@
 import os
+from typing import Callable
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -6,13 +7,14 @@ import pandas as pd
 from scipy.interpolate import BSpline
 
 
-def build_bs_basis(
+def build_bspline(
     x: np.ndarray,
     knots_internal: np.ndarray,
+    coeffs: np.ndarray,
     degree: int = 2,
     lower_bound: float | None = None,
     upper_bound: float | None = None,
-) -> np.ndarray:
+) -> Callable[[np.ndarray], np.ndarray]:
     """Build a B-spline basis matrix using SciPy BSpline.
 
     We construct a knot vector `t` with length `ncoef + degree + 1` where
@@ -31,9 +33,8 @@ def build_bs_basis(
         lower_bound, upper_bound: boundary knots (scalars). If None, use min/max(x).
 
     Returns:
-        ndarray shape (len(x), ncoef) design matrix.
+        Callable
     """
-    x = np.asarray(x)
     if lower_bound is None:
         lower_bound = float(np.min(x))
     if upper_bound is None:
@@ -41,9 +42,6 @@ def build_bs_basis(
 
     k = int(degree)
     internal = list(map(float, knots_internal))
-
-    # Number of basis functions desired (matches R's vardf)
-    ncoef = k + len(internal)
 
     # Construct knot vector t
     # Repeat lower_bound k times and upper_bound k+1 times (see note above)
@@ -55,14 +53,7 @@ def build_bs_basis(
         raise ValueError("Knot vector must be non-decreasing")
 
     # Build each basis by using coefficient vectors that pick out each basis function
-    B = np.zeros((len(x), ncoef), dtype=float)
-    for j in range(ncoef):
-        c = np.zeros(ncoef, dtype=float)
-        c[j] = 1.0
-        spline = BSpline(t, c, k, extrapolate=True)
-        B[:, j] = spline(x)
-
-    return B
+    return BSpline(t, coeffs, k, extrapolate=True)
 
 
 def erf(tmean: np.ndarray, perc: np.ndarray, coeffs: np.ndarray) -> np.ndarray:
@@ -88,32 +79,22 @@ def erf(tmean: np.ndarray, perc: np.ndarray, coeffs: np.ndarray) -> np.ndarray:
 
     # Build basis at the evaluation points using same knots/bounds as R
     knots_internal = np.array([t10, t75, t90])
-    B = build_bs_basis(
-        tmean, knots_internal, degree=2, lower_bound=t0, upper_bound=t100
+    bspline = build_bspline(
+        tmean, knots_internal, coeffs, degree=2, lower_bound=t0, upper_bound=t100
     )
-
-    # Linear predictor (R treats coefficients as log-RR coefficients)
-    lp = B.dot(coeffs)
+    lp = bspline(tmean)
 
     # Evaluate lp on the percentile grid to find MMT within 25-99% (replicates R's ind)
     # We need lp evaluated on the same tmean/perc grid
-    B_full = build_bs_basis(
-        tmean, knots_internal, degree=2, lower_bound=t0, upper_bound=t100
-    )
-    lp_full = B_full.dot(coeffs)
     ind = (perc >= 25) & (perc <= 99)
     if ind.sum() == 0:
         # fallback: use overall min
-        mmt = tmean[np.argmin(lp_full)]
+        mmt = tmean[np.argmin(lp)]
     else:
-        mmt = tmean[ind][np.argmin(lp_full[ind])]
+        mmt = tmean[ind][np.argmin(lp[ind])]
 
     # lp at mmt
-    B_mmt = build_bs_basis(
-        np.array([mmt]), knots_internal, degree=2, lower_bound=t0, upper_bound=t100
-    )
-    # Extract scalar safely to avoid deprecated array->scalar conversion
-    lp_mmt = (B_mmt.dot(coeffs)).item()
+    lp_mmt = bspline(np.array([mmt]))
 
     # Compute RR centered at MMT and enforce >= 1 as in R: rr <- pmax(exp(...), 1)
     rr = np.exp(lp - lp_mmt)
@@ -130,7 +111,13 @@ def main(output_dir: str = "output"):
     # Filter for a single example (kept from original script)
     urau_code = "AT001C"
 
-    plt.figure(figsize=(8, 5))
+    # Initialize tmean and perc arrays
+    tmean = np.empty(0)
+    perc = np.empty(0)
+
+    # Create two subplots: one for X = percentiles, one for X = temperatures
+    fig, axs = plt.subplots(1, 2, figsize=(12, 5))
+
     for agegroup in ["20-44", "45-64", "65-74", "75-84", "85+"]:
         coeffs = df_coeffs[
             (df_coeffs["URAU_CODE"] == urau_code) & (df_coeffs["agegroup"] == agegroup)
@@ -148,12 +135,57 @@ def main(output_dir: str = "output"):
         y_vals = erf(tmean, perc, coeffs)
 
         # Plot ERF
-        plt.plot(perc, y_vals, label=agegroup)
-    plt.xlabel("Temperature percentile")
-    plt.ylabel("Relative Risk")
-    plt.title(f"Exposure-Response Function (ERF) for {urau_code}")
-    plt.legend(title="Age Group")
-    plt.grid()
+        axs[0].plot(tmean, y_vals, label=agegroup)
+        axs[1].plot(perc, y_vals, label=agegroup)
+    axs[0].set_xlabel("Temperature (ºC)")
+    axs[1].set_xlabel("Temperature percentile")
+    for ax in axs:
+        ax.set_ylabel("Relative Risk")
+        ax.set_title(f"Exposure-Response Function (ERF) for {urau_code}")
+        ax.legend(title="Age Group")
+        ax.grid()
+    # Below the X-axis temperatures, create a secondary X-axis with percentiles
+    # showing the percentiles 10, 25, 50, 75, 90
+    secax = axs[0].secondary_xaxis(
+        -0.15,
+        functions=(
+            lambda x: np.interp(
+                x,
+                tmean,
+                perc,
+            ),
+            lambda x: np.interp(
+                x,
+                perc,
+                tmean,
+            ),
+        ),
+    )
+    secax.set_xlabel("Temperature Percentile")
+    secax.set_xticks([10, 25, 50, 75, 90])
+
+    # And now the opposite on the percentile plot
+    # We will show the temperatures corresponding to existing ticks
+    secax2 = axs[1].secondary_xaxis(
+        -0.15,
+        functions=(
+            lambda x: np.interp(
+                x,
+                perc,
+                tmean,
+            ),
+            lambda x: np.interp(
+                x,
+                tmean,
+                perc,
+            ),
+        ),
+    )
+    secax2.set_xlabel("Temperature (ºC)")
+    xticks = axs[1].get_xticks()
+    secax2.set_xticks(np.interp(xticks, perc, tmean).round(1))
+
+    plt.tight_layout()
 
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
@@ -161,4 +193,5 @@ def main(output_dir: str = "output"):
 
 
 if __name__ == "__main__":
+    main()
     main()
