@@ -23,17 +23,34 @@ def build_bspline(
     To build the knot vector we use the following layout (for degree k):
       t = [lower repeated k times] + internal_knots + [upper repeated (k+1) times]
 
-    This yields len(t) = k + len(internal_knots) + (k+1) = (degree + len(internal_knots)) + degree + 1
-    which gives ncoef = degree + len(knots_internal) basis functions.
+    This yields len(t) = k + len(internal_knots) + (k+1) =
+    (degree + len(internal_knots)) + degree + 1, which gives
+    ncoef = degree + len(knots_internal) basis functions.
 
-    Args:
-        x: 1D array-like of evaluation points.
-        knots_internal: list/array of internal knot locations.
-        degree: spline degree (k).
-        lower_bound, upper_bound: boundary knots (scalars). If None, use min/max(x).
+    Parameters
+    ----------
+    x : np.ndarray
+        1D array-like of evaluation points.
+    knots_internal : np.ndarray
+        Array of internal knot locations.
+    coeffs : np.ndarray
+        Array of spline coefficients.
+    degree : int, optional
+        Spline degree (k), by default 2.
+    lower_bound : float or None, optional
+        Lower boundary knot. If None, use min(x), by default None.
+    upper_bound : float or None, optional
+        Upper boundary knot. If None, use max(x), by default None.
 
-    Returns:
-        Callable
+    Returns
+    -------
+    Callable[[np.ndarray], np.ndarray]
+        A callable BSpline object that evaluates the spline at given points.
+
+    Raises
+    ------
+    ValueError
+        If knot vector is not non-decreasing.
     """
     if lower_bound is None:
         lower_bound = float(np.min(x))
@@ -64,24 +81,38 @@ def erf(
     lower_bound: float,
     upper_bound: float,
 ) -> np.ndarray:
-    """Exposure-Response Function matching the R implementation.
+    """Compute Exposure-Response Function matching Masselot et al. (2025) R implementation.
 
     Steps replicated from `03_attribution.R`:
-      - build a bs basis with degree=2 and FIXED internal knots from historical data
-      - compute linear predictor lp = B(x) @ coefs
-      - find MMT as the temperature within 25-99th percentiles that minimizes lp
-      - compute rr(x) = exp(lp(x) - lp(mmt)) and clip at >= 1
+      1. Build a B-spline basis with degree=2 and FIXED internal knots from historical data
+      2. Compute linear predictor lp = B(x) @ coefs
+      3. Find MMT as the temperature within 25-99th percentiles that minimizes lp
+      4. Compute rr(x) = exp(lp(x) - lp(mmt)) and clip at >= 1
 
-    Args:
-        tmean: 1D array of temperature evaluation points
-        perc: 1D array of percentiles corresponding to tmean
-        coeffs: 1D array of spline coefficients for this age group
-        knots_internal: FIXED internal knot locations (at 10%, 75%, 90% of historical data)
-        lower_bound: FIXED boundary knot at 0% of historical data
-        upper_bound: FIXED boundary knot at 100% of historical data
+    Parameters
+    ----------
+    tmean : np.ndarray
+        1D array of temperature evaluation points (°C).
+    perc : np.ndarray
+        1D array of percentiles corresponding to tmean.
+    coeffs : np.ndarray
+        1D array of spline coefficients for this age group.
+    knots_internal : np.ndarray
+        FIXED internal knot locations (at 10%, 75%, 90% of historical data).
+    lower_bound : float
+        FIXED boundary knot at 0% of historical data.
+    upper_bound : float
+        FIXED boundary knot at 100% of historical data.
 
-    Returns:
-        np.ndarray of RR values
+    Returns
+    -------
+    np.ndarray
+        Array of relative risk (RR) values, clipped at minimum of 1.0.
+
+    Notes
+    -----
+    The knots are fixed per city and shared across all age groups, matching R's
+    `argvar` parameter in the original implementation.
     """
     # Build basis at the evaluation points using FIXED knots from historical data
     # These knots are the same for all age groups (matching R's argvar)
@@ -114,13 +145,58 @@ def erf(
     return rr
 
 
-def main(output_dir: str = "output"):
-    # Read input data
-    df_coeffs = pd.read_csv("data/coefs.csv")
-    df_tmean = pd.read_csv("data/tmean_distribution.csv")
+def main(
+    urau_code: str = "AT001C",
+    coefs_path: str = "data/coefs.csv",
+    tmean_path: str = "data/tmean_distribution.csv",
+    output_dir: str = "output",
+    figsize: tuple[float, float] = (12, 5),
+    save_plot: bool = True,
+):
+    """Generate Exposure-Response Function plots for a specified city.
 
-    # Filter for a single example (kept from original script)
-    urau_code = "AT001C"
+    This function creates dual plots showing the relationship between temperature
+    and relative risk (RR) for different age groups, using both absolute temperature
+    and percentile scales.
+
+    Parameters
+    ----------
+    urau_code : str, optional
+        Urban Audit city code (e.g., "AT001C" for Vienna), by default "AT001C".
+    coefs_path : str, optional
+        Path to CSV file containing spline coefficients, by default "data/coefs.csv".
+    tmean_path : str, optional
+        Path to CSV file containing temperature distributions, by default "data/tmean_distribution.csv".
+    output_dir : str, optional
+        Directory where output plot will be saved, by default "output".
+    figsize : tuple[float, float], optional
+        Figure size (width, height) in inches, by default (12, 5).
+    save_plot : bool, optional
+        Whether to save the plot to disk, by default True.
+
+    Returns
+    -------
+    tuple[matplotlib.figure.Figure, np.ndarray]
+        The generated figure and array of axes.
+
+    Notes
+    -----
+    The function generates two side-by-side plots:
+    - Left: RR vs Temperature (°C) with percentile secondary axis
+    - Right: RR vs Temperature percentile with temperature secondary axis
+
+    Age groups included: 20-44, 45-64, 65-74, 75-84, 85+
+
+    References
+    ----------
+    Masselot, P., Mistry, M.N., Rao, S. et al. Estimating future heat-related
+    and cold-related mortality under climate change, demographic and adaptation
+    scenarios in 854 European cities. Nat Med (2025).
+    https://doi.org/10.1038/s41591-024-03452-2
+    """
+    # Read input data
+    df_coeffs = pd.read_csv(coefs_path)
+    df_tmean = pd.read_csv(tmean_path)
 
     # Extract the temperature distribution for this city (used for evaluation)
     tmean = (
@@ -148,7 +224,7 @@ def main(output_dir: str = "output"):
     upper_bound = t100
 
     # Create two subplots: one for X = percentiles, one for X = temperatures
-    fig, axs = plt.subplots(1, 2, figsize=(12, 5))
+    fig, axs = plt.subplots(1, 2, figsize=figsize)
 
     for agegroup in ["20-44", "45-64", "65-74", "75-84", "85+"]:
         # Extract coefficients for this URAU_CODE and agegroup
@@ -213,9 +289,13 @@ def main(output_dir: str = "output"):
 
     plt.tight_layout()
 
-    # Create output directory if it doesn't exist
-    os.makedirs(output_dir, exist_ok=True)
-    plt.savefig(os.path.join(output_dir, "erf_plot.png"))
+    # Save plot if requested
+    if save_plot:
+        os.makedirs(output_dir, exist_ok=True)
+        plt.savefig(os.path.join(output_dir, f"erf_plot_{urau_code}.png"), dpi=150)
+        print(f"Plot saved to {os.path.join(output_dir, f'erf_plot_{urau_code}.png')}")
+
+    return fig, axs
 
 
 if __name__ == "__main__":
