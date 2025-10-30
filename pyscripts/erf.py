@@ -193,4 +193,3 @@ def main(output_dir: str = "output"):
 
 if __name__ == "__main__":
     main()
-    main()
