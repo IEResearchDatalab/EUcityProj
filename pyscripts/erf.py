@@ -56,7 +56,14 @@ def build_bspline(
     return BSpline(t, coeffs, k, extrapolate=True)
 
 
-def erf(tmean: np.ndarray, perc: np.ndarray, coeffs: np.ndarray) -> np.ndarray:
+def erf(
+    tmean: np.ndarray,
+    perc: np.ndarray,
+    coeffs: np.ndarray,
+    knots_internal: np.ndarray,
+    lower_bound: float,
+    upper_bound: float,
+) -> np.ndarray:
     """Exposure-Response Function matching the R implementation.
 
     Steps replicated from `03_attribution.R`:
@@ -66,21 +73,25 @@ def erf(tmean: np.ndarray, perc: np.ndarray, coeffs: np.ndarray) -> np.ndarray:
       - compute rr(x) = exp(lp(x) - lp(mmt)) and clip at >= 1
 
     Args:
-        x: scalar or 1D array-like of temperatures (same units as the tmean_distribution)
+        tmean: 1D array of temperature evaluation points
+        perc: 1D array of percentiles corresponding to tmean
+        coeffs: 1D array of spline coefficients for this age group
+        knots_internal: FIXED internal knot locations (at 10%, 75%, 90% of historical data)
+        lower_bound: FIXED boundary knot at 0% of historical data
+        upper_bound: FIXED boundary knot at 100% of historical data
 
     Returns:
         np.ndarray of RR values
     """
-    t0 = float(tmean[np.where(perc == 0)[0][0]])
-    t10 = float(tmean[np.where(perc == 10)[0][0]])
-    t75 = float(tmean[np.where(perc == 75)[0][0]])
-    t90 = float(tmean[np.where(perc == 90)[0][0]])
-    t100 = float(tmean[np.where(perc == 100)[0][0]])
-
-    # Build basis at the evaluation points using same knots/bounds as R
-    knots_internal = np.array([t10, t75, t90])
+    # Build basis at the evaluation points using FIXED knots from historical data
+    # These knots are the same for all age groups (matching R's argvar)
     bspline = build_bspline(
-        tmean, knots_internal, coeffs, degree=2, lower_bound=t0, upper_bound=t100
+        tmean,
+        knots_internal,
+        coeffs,
+        degree=2,
+        lower_bound=lower_bound,
+        upper_bound=upper_bound,
     )
     lp = bspline(tmean)
 
@@ -121,6 +132,21 @@ def main(output_dir: str = "output"):
     # Format: "x.x%" turn to float
     perc = np.array([float(pct.strip("%")) for pct in perc])
 
+    # CRITICAL: Extract FIXED knots ONCE per city (matching R's argvar)
+    # In R (03_attribution.R lines 172-176):
+    #   varknots <- tper[paste0(varper, ".0%")]  # where varper = c(10, 75, 90)
+    #   varbound <- range(tper)
+    #   argvar <- list(fun = varfun, degree = vardegree, knots = varknots, Bound = varbound)
+    t0 = float(tmean[np.where(perc == 0)[0][0]])  # Boundary knot (lower)
+    t10 = float(tmean[np.where(perc == 10)[0][0]])  # Internal knot 1
+    t75 = float(tmean[np.where(perc == 75)[0][0]])  # Internal knot 2
+    t90 = float(tmean[np.where(perc == 90)[0][0]])  # Internal knot 3
+    t100 = float(tmean[np.where(perc == 100)[0][0]])  # Boundary knot (upper)
+
+    knots_internal = np.array([t10, t75, t90])
+    lower_bound = t0
+    upper_bound = t100
+
     # Create two subplots: one for X = percentiles, one for X = temperatures
     fig, axs = plt.subplots(1, 2, figsize=(12, 5))
 
@@ -130,8 +156,9 @@ def main(output_dir: str = "output"):
             (df_coeffs["URAU_CODE"] == urau_code) & (df_coeffs["agegroup"] == agegroup)
         ]
         coeffs = coeffs.drop(columns=["URAU_CODE", "agegroup"]).values[0]
-        # Compute ERF values
-        y_vals = erf(tmean, perc, coeffs)
+
+        # Compute ERF values using FIXED knots (same for all age groups)
+        y_vals = erf(tmean, perc, coeffs, knots_internal, lower_bound, upper_bound)
 
         # Plot ERF
         axs[0].plot(tmean, y_vals, label=agegroup)
