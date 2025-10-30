@@ -60,7 +60,7 @@ def erf(tmean: np.ndarray, perc: np.ndarray, coeffs: np.ndarray) -> np.ndarray:
     """Exposure-Response Function matching the R implementation.
 
     Steps replicated from `03_attribution.R`:
-      - build a bs basis with degree=2 and internal knots at the specified percentiles
+      - build a bs basis with degree=2 and FIXED internal knots from historical data
       - compute linear predictor lp = B(x) @ coefs
       - find MMT as the temperature within 25-99th percentiles that minimizes lp
       - compute rr(x) = exp(lp(x) - lp(mmt)) and clip at >= 1
@@ -111,27 +111,26 @@ def main(output_dir: str = "output"):
     # Filter for a single example (kept from original script)
     urau_code = "AT001C"
 
-    # Initialize tmean and perc arrays
-    tmean = np.empty(0)
-    perc = np.empty(0)
+    # Extract the temperature distribution for this city (used for evaluation)
+    tmean = (
+        df_tmean[df_tmean["URAU_CODE"] == urau_code]
+        .drop(columns=["URAU_CODE"])
+        .values[0]
+    )
+    perc = np.array(df_tmean.drop(columns=["URAU_CODE"]).columns.tolist())
+    # Format: "x.x%" turn to float
+    perc = np.array([float(pct.strip("%")) for pct in perc])
 
     # Create two subplots: one for X = percentiles, one for X = temperatures
     fig, axs = plt.subplots(1, 2, figsize=(12, 5))
 
     for agegroup in ["20-44", "45-64", "65-74", "75-84", "85+"]:
+        # Extract coefficients for this URAU_CODE and agegroup
         coeffs = df_coeffs[
             (df_coeffs["URAU_CODE"] == urau_code) & (df_coeffs["agegroup"] == agegroup)
         ]
         coeffs = coeffs.drop(columns=["URAU_CODE", "agegroup"]).values[0]
-        tmean = (
-            df_tmean[df_tmean["URAU_CODE"] == urau_code]
-            .drop(columns=["URAU_CODE"])
-            .values[0]
-        )
-        perc = np.array(df_tmean.drop(columns=["URAU_CODE"]).columns.tolist())
-        # Format: "x.x%" turn to float
-        perc = np.array([float(pct.strip("%")) for pct in perc])
-
+        # Compute ERF values
         y_vals = erf(tmean, perc, coeffs)
 
         # Plot ERF
