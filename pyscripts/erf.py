@@ -152,6 +152,9 @@ def main(
     output_dir: str = "output",
     figsize: tuple[float, float] = (12, 5),
     save_plot: bool = True,
+    extend_range: float = 0.02,
+    n_points: int = 200,
+    rr_max: float = 3.0,
 ):
     """Generate Exposure-Response Function plots for a specified city.
 
@@ -173,6 +176,14 @@ def main(
         Figure size (width, height) in inches, by default (12, 5).
     save_plot : bool, optional
         Whether to save the plot to disk, by default True.
+    extend_range : float, optional
+        Fraction by which to extend the temperature range beyond observed min/max.
+        For example, 0.05 extends by 5% on each side, by default 0.05.
+    n_points : int, optional
+        Number of points for smooth curve evaluation, by default 200.
+    rr_max : float, optional
+        Maximum y-axis limit for relative risk (RR) plots. Values are cropped at this level
+        for better visualization, by default 3.0.
 
     Returns
     -------
@@ -223,6 +234,21 @@ def main(
     lower_bound = t0
     upper_bound = t100
 
+    # Create extended temperature range for plotting (extrapolation beyond observed data)
+    temp_range = t100 - t0
+    temp_extension = temp_range * extend_range
+    tmean_extended = np.linspace(t0 - temp_extension, t100 + temp_extension, n_points)
+
+    # For the extended range, we'll use the original tmean/perc for interpolation
+    # but we need to handle extrapolation carefully
+    perc_extended = np.interp(
+        tmean_extended,
+        tmean,
+        perc,
+        left=perc[0],  # Extrapolate using first percentile
+        right=perc[-1],  # Extrapolate using last percentile
+    )
+
     # Create two subplots: one for X = percentiles, one for X = temperatures
     fig, axs = plt.subplots(1, 2, figsize=figsize)
 
@@ -234,11 +260,19 @@ def main(
         coeffs = coeffs.drop(columns=["URAU_CODE", "agegroup"]).values[0]
 
         # Compute ERF values using FIXED knots (same for all age groups)
-        y_vals = erf(tmean, perc, coeffs, knots_internal, lower_bound, upper_bound)
+        # Use extended temperature range for smoother curves and extrapolation
+        y_vals_extended = erf(
+            tmean_extended,
+            perc_extended,
+            coeffs,
+            knots_internal,
+            lower_bound,
+            upper_bound,
+        )
 
-        # Plot ERF
-        axs[0].plot(tmean, y_vals, label=agegroup)
-        axs[1].plot(perc, y_vals, label=agegroup)
+        # Plot ERF on extended range
+        axs[0].plot(tmean_extended, y_vals_extended, label=agegroup)
+        axs[1].plot(perc_extended, y_vals_extended, label=agegroup)
     axs[0].set_xlabel("Temperature (ºC)")
     axs[1].set_xlabel("Temperature percentile")
     for ax in axs:
@@ -246,25 +280,28 @@ def main(
         ax.set_title(f"Exposure-Response Function (ERF) for {urau_code}")
         ax.legend(title="Age Group")
         ax.grid()
+        # Set y-axis limit to crop at maximum RR
+        ax.set_ylim(bottom=1.0, top=rr_max)
     # Below the X-axis temperatures, create a secondary X-axis with percentiles
     # showing the percentiles 10, 25, 50, 75, 90
+    # Use extended range for interpolation
     secax = axs[0].secondary_xaxis(
         -0.15,
         functions=(
             lambda x: np.interp(
                 x,
-                tmean,
-                perc,
+                tmean_extended,
+                perc_extended,
             ),
             lambda x: np.interp(
                 x,
-                perc,
-                tmean,
+                perc_extended,
+                tmean_extended,
             ),
         ),
     )
     secax.set_xlabel("Temperature Percentile")
-    secax.set_xticks([10, 25, 50, 75, 90])
+    secax.set_xticks([1, 10, 25, 50, 75, 90, 99])
 
     # And now the opposite on the percentile plot
     # We will show the temperatures corresponding to existing ticks
@@ -273,13 +310,13 @@ def main(
         functions=(
             lambda x: np.interp(
                 x,
-                perc,
-                tmean,
+                perc_extended,
+                tmean_extended,
             ),
             lambda x: np.interp(
                 x,
-                tmean,
-                perc,
+                tmean_extended,
+                perc_extended,
             ),
         ),
     )
