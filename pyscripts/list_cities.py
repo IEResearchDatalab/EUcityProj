@@ -124,7 +124,7 @@ def main(path_metadata="./data/metadata.csv"):
     # Calculate the percentage of population studied in each country
     df["pop_percentage"] = (df["pop_studied"] / df["pop_country"]) * 100
     # Save to CSV, maximum of 2 decimal places
-    df.to_csv("city_list_with_population.csv", index=False, float_format="%.2f")
+    df.to_csv("city_list_masselot.csv", index=False, float_format="%.2f")
 
 
 if __name__ == "__main__":
