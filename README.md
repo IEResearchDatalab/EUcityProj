@@ -29,3 +29,12 @@ The scripts are run in order. Scripts 01 to 03 run the main analysis with result
 | `04_tables.R` | Produces the main table from the article. Note that this script will load previously saved results and can then be used without having to run the previous scripts.
 | `05_plots.R` | Produces plots featured in the main text of the article.
 | `06_plot_supp.R` | Produces Extended Data plots.
+
+## Simon's Contribution
+
+`rscripts/extract_Masselot_data.R`
+
+I'm looking at using Masselot's output for some other research so put together some code to extract the ERFs from the 2023 paper (which are used in the 2025 projection paper). I'm not sure, but you may have already extracted the ERFs: if so, these can act as a check.
+
+Plots are shown in the PDF file (in "outdata"). Most look good, but some are a mess (I think they have been correctly extracted, though) with extremely wide uncertainty and the MMT as the 0th centile.  I'm yet to look at the paper/s to see how they handled these situations (They may have just run them through the AN function! But, these guys are generally very thorough).
+
