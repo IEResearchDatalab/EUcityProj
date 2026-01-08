@@ -6,21 +6,11 @@ script "rscripts/extract_Masselot_data.R" by Simon Lloyd.
 """
 
 import os
-from typing import Tuple
 
 import pandas as pd
 import rpy2.robjects as robjects
 from rpy2.robjects import pandas2ri, r
 from rpy2.robjects.conversion import localconverter
-
-
-def get_paths() -> Tuple[str, str]:
-    """Get paths for input RDS file and output directory."""
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_dir = os.path.dirname(script_dir)
-    rds_path = os.path.join(project_dir, "output", "erfs.rds")
-    output_dir = os.path.join(project_dir, "output")
-    return rds_path, output_dir
 
 
 def load_rds_file(rds_path: str):
@@ -134,10 +124,8 @@ def print_usage_examples(df: pd.DataFrame) -> None:
     print(f"\nColumns available: {df.columns.tolist()}")
 
 
-def main() -> None:
+def main(rds_path: str = "output/erfs.rds", output_dir: str = "output") -> None:
     """Main function to orchestrate the conversion process."""
-    # Get paths
-    rds_path, output_dir = get_paths()
 
     # Load RDS file
     data = load_rds_file(rds_path)
